@@ -1,0 +1,245 @@
+<!doctype html>
+<title>Path Seeker Animated Sprite</title>
+<canvas id="canvas" width="800" height="600"></canvas>
+<script src="script/imageLoader.js"></script>
+<script src="script/sprite.js"></script>
+<script src="script/walkStates.js"></script>
+
+<link rel="stylesheet" href="css/style.css">
+<script src="script/utils.js"></script>
+<script>
+//"use strict";
+
+// sprite found at:
+// https://www.scirra.com/tutorials/413/direction-based-sprite-animation
+
+window.onload = function () {
+
+// global variables
+var canvas = document.getElementById( 'canvas' );
+var context = canvas.getContext( '2d' );
+
+var agent = new Agent({ x: 75 , y: 500, speed: 5 });
+var steeringForce = new SteeringForce();
+
+var minWayPointSize = 12;
+var maxWayPointSize = 20;
+
+// initialize path array index
+var nextPointIndex = 0;
+var path = [];
+
+var particles = [];
+//var gravity = 0.25;
+//var bounce = -0.6;
+//var friction = 0.9;
+var numParticles = 10;  //number of particles the waypoints smash into
+var maxParticles = 200;
+
+
+//create waypoints
+path.push( new Waypoint( 75, 75, utils.getRandomInt( minWayPointSize, maxWayPointSize ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 200, 75, utils.getRandomInt( minWayPointSize, maxWayPointSize ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 200, 360, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 450, 360, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 450, 75, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 575, 75, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 575, 200, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 725, 200, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 725, 500, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+path.push( new Waypoint( 75, 500, utils.getRandomInt( minWayPointSize, maxWayPointSize  ), Math.random() * 0xffffff) );
+
+var nextPoint = path[ 0 ];
+
+// image data
+var frameWidth = 64;
+var frameHeight = 64;
+
+// animation data
+var previousTime = Date.now();
+
+// increase size of images drawn to canvas.
+//context.scale(2, 2);
+
+// disable image smoothing to preserve pixel retro look!
+utils.disableImageSmoothing(context);
+
+// load image file
+imageLoader.queueImage("holder_sprite_2");
+imageLoader.loadQueuedImages(onImageLoaded);
+
+
+// after image is done loading, create agent, add event listeners, and run game loop.
+function onImageLoaded() {   
+	
+    agent.spriteSheet = imageLoader.images["holder_sprite_2"];
+    agent.changeState(walkNorth);
+	tick();
+}
+
+// main animation loop
+function tick() {
+	window.requestAnimationFrame(tick, canvas);
+			
+	var currentTime = Date.now();
+	
+	// divide by 1000 to convert millseconds to seconds....
+	var elapsedTime = (currentTime - previousTime) / 1000;
+	
+	//console.log(elapsedTime);
+	
+	// limit elapsed time to one animation frame so that the
+	// the animation does not run too fast when the window loses
+	// then regains focus.
+	if (elapsedTime > agent.frameTimeSeconds) {
+		elapsedTime = agent.frameTimeSeconds;
+	}
+	
+	agent.getState();
+	selectAgentState();	
+	previousTime = currentTime;
+	
+	context.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawMaze();
+    
+    
+    if ( path.length ){
+        drawWayPoints();
+        updateAgent( elapsedTime );
+    } 
+	
+	
+	agent.draw(context, frameWidth, frameHeight);
+	
+	
+}
+
+// manages state transitions for agent based on travelling direction.
+function selectAgentState() {
+	if (agent.isMovingNorth && agent.currentState != walkNorth) {
+		agent.changeState(walkNorth);
+	} else if (agent.isMovingSouth && agent.currentState != walkSouth) {
+		agent.changeState(walkSouth);
+	} else if (agent.isMovingEast && agent.currentState != walkEast) {
+		agent.changeState(walkEast);
+	} else if (agent.isMovingWest && agent.currentState != walkWest) {
+		agent.changeState(walkWest);
+	} else if (!agent.isMovingNorth && !agent.isMovingSouth && !agent.isMovingEast && !agent.isMovingWest && agent.currentState != idle) {
+		agent.changeState(idle);
+	}
+}
+
+
+// move toward target position at max accleration.
+function seek( agent, target, steeringForce ) {
+  var x = target.x - agent.x;
+  var y = target.y - agent.y;
+  
+  var distance = Math.sqrt( x * x + y * y );
+
+  x = x / distance * agent.maxAcceleration;
+  y = y / distance * agent.maxAcceleration;
+  
+  steeringForce.linearX = x;
+  steeringForce.linearY = y;
+}
+
+// move away from target position at max acceleration
+function flee( agent, targetX, targetY, steeringForce ) {
+  var x = agent.x - targetX;
+  var y = agent.y - targetY;
+  
+  var distance = Math.sqrt( x * x + y * y );
+  
+  x = x / distance * agent.maxAcceleration;
+  y = y / distance * agent.maxAcceleration;
+  
+  steeringForce.linearX = x;
+  steeringForce.linearY = y;
+}
+
+
+function getNextWayPoint() {
+  ++nextPointIndex;
+
+  if (nextPointIndex >= path.length) {
+  nextPointIndex = 0;
+  }
+
+  return path[ nextPointIndex ];
+}
+
+function drawMaze( ){
+  context.save();
+  context.lineWidth = 4;
+  context.fillStyle = "yellow";
+  context.strokeStyle = "black";          
+  context.fillRect( 0, 0, canvas.width, canvas.height );
+  context.strokeRect( 0, 0, canvas.width, canvas.height );
+  context.restore();
+}
+
+function drawWayPoints(){
+    var i = path.length - 1;
+
+    while ( path[ i ] ){
+      path[ i ].draw(context);
+      i--;
+    }
+}
+
+function drawParticles(){
+  for ( var i = particles.length - 1; i >= 0; i-- ) {
+      particles[ i ].update();
+      particles[ i ].draw(context);
+  };
+}
+
+function updateAgent( elapsedTime ) {
+  seek( agent, nextPoint, steeringForce );
+  agent.update( elapsedTime, steeringForce );
+  checkCollision();
+  drawParticles();
+  if ( particles.length )  {
+    for ( var i = particles.length - 1; i >= 0; i-- ) {
+      particles[ i ].update();
+      particles[ i ].draw(context);
+
+      //remove particles with no velocity
+      if ( ( Math.abs( particles[ i ].vx ) < 0.01 ) && ( Math.abs( particles[ i ].vy ) < 1 ) ) {
+          particles.splice( i, 1 );
+      }
+    }
+  }
+}
+
+//see if agent has arrived at waypoint
+function checkCollision() {
+  var distance;
+  
+  distance = utils.getDistance( nextPoint, agent );    //find hypotenuse
+  
+  if ( distance < ( agent.radius * 2 + nextPoint.radius * 2 ) / 3 ) {
+    smashWaypoint();
+    nextPoint = getNextWayPoint();
+  }                 
+}
+
+function smashWaypoint () {
+  //change waypoint color
+  nextPoint.color = utils.parseColor( Math.random() * 0xffffff );
+  nextPoint.radius -= 2;
+  if ( nextPoint.radius <= 0 ) {
+    path.splice( nextPointIndex, 1 );
+    nextPointIndex -= 1;
+  }
+  //create small pieces at the current waypoint's position
+  for ( var i = 0; i < numParticles; i++ ) {
+    particles.push( new Particle( nextPoint.x, nextPoint.y, utils.getRandomInt( 1, 2 ), Math.random() * 0xffffff) );
+  }
+}
+
+};
+
+</script>
